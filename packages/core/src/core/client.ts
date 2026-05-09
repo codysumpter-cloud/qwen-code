@@ -133,7 +133,7 @@ const EMPTY_RELEVANT_AUTO_MEMORY_RESULT: RelevantAutoMemoryPromptResult = {
 
 function wrapIdeContext(contextText: string): string {
   const safeContextText = contextText.replace(
-    /<\/system-reminder>/gi,
+    /<\s*\/\s*system-reminder\s*>/gi,
     '<\\/system-reminder>',
   );
   return `<system-reminder>\n${safeContextText}\n</system-reminder>`;
@@ -1020,9 +1020,9 @@ export class GeminiClient {
     const model = options?.modelOverride ?? this.config.getModel();
 
     // append system reminders to the request
-    let requestToSent = await flatMapTextParts(request, async (text) => [text]);
+    let requestToSend = await flatMapTextParts(request, async (text) => [text]);
     if (ideContextText) {
-      requestToSent = prependToFirstTextPart(requestToSent, ideContextText);
+      requestToSend = prependToFirstTextPart(requestToSend, ideContextText);
     }
     if (
       messageType === SendMessageType.UserQuery ||
@@ -1075,7 +1075,7 @@ export class GeminiClient {
         }
       }
 
-      requestToSent = [...systemReminders, ...requestToSent];
+      requestToSend = [...systemReminders, ...requestToSend];
     }
 
     if (shouldUpdateIdeContextState) {
@@ -1083,7 +1083,7 @@ export class GeminiClient {
       this.forceFullIdeContext = false;
     }
 
-    const resultStream = turn.run(model, requestToSent, signal);
+    const resultStream = turn.run(model, requestToSend, signal);
     for await (const event of resultStream) {
       if (!this.config.getSkipLoopDetection()) {
         if (this.loopDetector.addAndCheck(event)) {
