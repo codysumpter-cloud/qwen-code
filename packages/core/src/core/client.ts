@@ -9,6 +9,7 @@ import type {
   Content,
   GenerateContentConfig,
   GenerateContentResponse,
+  PartUnion,
   PartListUnion,
   Tool,
 } from '@google/genai';
@@ -129,6 +130,51 @@ const EMPTY_RELEVANT_AUTO_MEMORY_RESULT: RelevantAutoMemoryPromptResult = {
   selectedDocs: [],
   strategy: 'none',
 };
+
+function wrapIdeContext(contextText: string): string {
+  const safeContextText = contextText.replace(
+    /<\/system-reminder>/gi,
+    '<\\/system-reminder>',
+  );
+  return `<system-reminder>\n${safeContextText}\n</system-reminder>`;
+}
+
+function prependToFirstTextPart(
+  parts: PartUnion[],
+  textToPrepend: string,
+): PartUnion[] {
+  if (!textToPrepend) {
+    return parts;
+  }
+
+  if (parts.length === 0) {
+    return [{ text: textToPrepend }];
+  }
+
+  const textPartIndex = parts.findIndex(
+    (part) =>
+      typeof part === 'string' ||
+      (typeof part === 'object' && part !== null && 'text' in part),
+  );
+
+  if (textPartIndex === -1) {
+    return [{ text: textToPrepend }, ...parts];
+  }
+
+  const updatedParts = [...parts];
+  const textPart = updatedParts[textPartIndex];
+
+  if (typeof textPart === 'string') {
+    updatedParts[textPartIndex] = `${textToPrepend}\n\n${textPart}`;
+  } else {
+    updatedParts[textPartIndex] = {
+      ...textPart,
+      text: `${textToPrepend}\n\n${textPart.text ?? ''}`,
+    };
+  }
+
+  return updatedParts;
+}
 
 /**
  * Resolve the auto-memory recall promise with a hard deadline.
@@ -935,16 +981,14 @@ export class GeminiClient {
       !!lastMessage &&
       lastMessage.role === 'model' &&
       (lastMessage.parts?.some((p) => 'functionCall' in p) || false);
+    let ideContextText: string | undefined;
 
     if (this.config.getIdeMode() && !hasPendingToolCall) {
       const { contextParts, newIdeContext } = this.getIdeContextParts(
         this.forceFullIdeContext || history.length === 0,
       );
       if (contextParts.length > 0) {
-        this.getChat().addHistory({
-          role: 'user',
-          parts: [{ text: contextParts.join('\n') }],
-        });
+        ideContextText = wrapIdeContext(contextParts.join('\n'));
       }
       this.lastSentIdeContext = newIdeContext;
       this.forceFullIdeContext = false;
@@ -972,6 +1016,9 @@ export class GeminiClient {
 
     // append system reminders to the request
     let requestToSent = await flatMapTextParts(request, async (text) => [text]);
+    if (ideContextText) {
+      requestToSent = prependToFirstTextPart(requestToSent, ideContextText);
+    }
     if (
       messageType === SendMessageType.UserQuery ||
       messageType === SendMessageType.Cron
@@ -1050,7 +1097,7 @@ export class GeminiClient {
 
       // Re-send a full IDE context blob on the next regular message — auto
       // compaction inside chat.sendMessageStream may have summarized away
-      // the previous IDE-context turn.
+      // the previous merged IDE context.
       if (event.type === GeminiEventType.ChatCompressed) {
         this.forceFullIdeContext = true;
       }
