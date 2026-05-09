@@ -992,6 +992,9 @@ export class GeminiClient {
       if (contextParts.length > 0) {
         ideContextText = wrapIdeContext(contextParts.join('\n'));
       }
+      // Even an empty/no-change IDE snapshot becomes the delta baseline once
+      // this turn is actually sent. Keep the state update delayed until after
+      // early cancellation checks so unsent context is not marked as sent.
       nextIdeContext = newIdeContext;
       shouldUpdateIdeContextState = true;
     }
