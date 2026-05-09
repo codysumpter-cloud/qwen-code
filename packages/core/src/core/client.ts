@@ -982,6 +982,8 @@ export class GeminiClient {
       lastMessage.role === 'model' &&
       (lastMessage.parts?.some((p) => 'functionCall' in p) || false);
     let ideContextText: string | undefined;
+    let nextIdeContext: IdeContext | undefined;
+    let shouldUpdateIdeContextState = false;
 
     if (this.config.getIdeMode() && !hasPendingToolCall) {
       const { contextParts, newIdeContext } = this.getIdeContextParts(
@@ -990,8 +992,8 @@ export class GeminiClient {
       if (contextParts.length > 0) {
         ideContextText = wrapIdeContext(contextParts.join('\n'));
       }
-      this.lastSentIdeContext = newIdeContext;
-      this.forceFullIdeContext = false;
+      nextIdeContext = newIdeContext;
+      shouldUpdateIdeContextState = true;
     }
 
     // Check for arena control signal before starting a new turn
@@ -1071,6 +1073,11 @@ export class GeminiClient {
       }
 
       requestToSent = [...systemReminders, ...requestToSent];
+    }
+
+    if (shouldUpdateIdeContextState) {
+      this.lastSentIdeContext = nextIdeContext;
+      this.forceFullIdeContext = false;
     }
 
     const resultStream = turn.run(model, requestToSent, signal);

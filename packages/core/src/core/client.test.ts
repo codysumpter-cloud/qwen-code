@@ -2271,6 +2271,59 @@ Other open files:
         expect(getLastTurnRequestText()).toContain('Another normal message');
       });
 
+      it('keeps IDE context unsent when arena cancels before the turn starts', async () => {
+        const normalHistory: Content[] = [
+          { role: 'user', parts: [{ text: 'A normal message.' }] },
+          { role: 'model', parts: [{ text: 'A normal response.' }] },
+        ];
+        vi.mocked(mockChat.getHistory!).mockReturnValue(normalHistory);
+
+        const mockArenaAgentClient = {
+          checkControlSignal: vi
+            .fn()
+            .mockResolvedValueOnce({ type: 'cancel', reason: 'stop' })
+            .mockResolvedValueOnce(null),
+          reportCancelled: vi.fn().mockResolvedValue(undefined),
+          reportCompleted: vi.fn().mockResolvedValue(undefined),
+          reportError: vi.fn().mockResolvedValue(undefined),
+          updateStatus: vi.fn().mockResolvedValue(undefined),
+        };
+        vi.mocked(mockConfig.getArenaAgentClient).mockReturnValue(
+          mockArenaAgentClient as unknown as ReturnType<
+            Config['getArenaAgentClient']
+          >,
+        );
+
+        let stream = client.sendMessageStream(
+          [{ text: 'Cancelled message' }],
+          new AbortController().signal,
+          'prompt-id-arena-cancel',
+        );
+        for await (const _ of stream) {
+          /* consume */
+        }
+
+        expect(mockArenaAgentClient.reportCancelled).toHaveBeenCalled();
+        expect(mockTurnRunFn).not.toHaveBeenCalled();
+        expect(client['lastSentIdeContext']).toBeUndefined();
+        expect(client['forceFullIdeContext']).toBe(true);
+
+        stream = client.sendMessageStream(
+          [{ text: 'After cancel' }],
+          new AbortController().signal,
+          'prompt-id-after-arena-cancel',
+        );
+        for await (const _ of stream) {
+          /* consume */
+        }
+
+        const requestText = getLastTurnRequestText();
+        expect(requestText).toContain("Here is the user's editor context.");
+        expect(requestText).toContain('/path/to/file.ts');
+        expect(requestText).not.toContain('summary of changes');
+        expect(requestText).toContain('After cancel');
+      });
+
       it('should send the latest IDE context on the next message after a skipped context', async () => {
         // --- Step 1: A tool call is pending, context should be skipped ---
 
